@@ -13,6 +13,7 @@ import qualified Data.ByteString.UTF8 as UTF
 import Debug.Trace
 import qualified Network.HTTP as HTTP
 
+import Text.Regex.PCRE
 import Text.PrettyPrint.HughesPJ as Doc
 
 --------------------------------------------------------------------------------
