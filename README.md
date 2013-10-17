@@ -24,7 +24,7 @@ How it works.
 
 To get your vice on, simply install ghc and run
 
-    $ runghc purity.hs > test.txt
+    $ ./purity.hs > test.txt
 
 to get a copy of the test in a nicely formatted plain-text file. You can mark
 each question in the test as [D]one, [T]echnicality, [W]ould do, or [ ]
