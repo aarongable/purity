@@ -2,25 +2,26 @@
 
 import System.Environment
 import Numeric
-import Data.Ratio
 import Data.Maybe
-import Data.List
-import Data.Word
 import Data.Tuple
 import qualified Data.Map as Map
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.UTF8 as UTF
-import Debug.Trace
 import qualified Network.HTTP as HTTP
+import Control.Monad
+import Data.Monoid (mempty)
 
 import Text.Regex.PCRE
 import Text.PrettyPrint.HughesPJ as Doc
 
+
 --------------------------------------------------------------------------------
 -- Raw Parsing
 
+sectionRegex ::  UTF.ByteString
 sectionRegex = B.pack "<h2><li>([-A-Za-z0-9 \t]*)<(?:/h2|/li|br)>"
 
+questionRegex ::  UTF.ByteString
 questionRegex = B.pack $ "<LI> <INPUT TYPE=checkbox NAME=q VALUE=[0-9a-f]+>" ++
                 "([\\S\\s]*)</li>"
 
@@ -28,19 +29,18 @@ questionRegex = B.pack $ "<LI> <INPUT TYPE=checkbox NAME=q VALUE=[0-9a-f]+>" ++
 readOne :: B.ByteString -> B.ByteString -> Maybe B.ByteString
 readOne regex str = result
   where
-    before :: B.ByteString
-    captured :: B.ByteString
-    after :: B.ByteString
-    results :: [B.ByteString]
-    (before, captured, after, results) = str =~ regex
+    (_, _, _, results) = str =~ regex :: (B.ByteString, B.ByteString, B.ByteString, [B.ByteString])
     result = case results of
       [] -> Nothing
       [s] -> Just s
-      otherwise -> error "Too many matches"
+      _ -> error "Too many matches"
 
 -- Try to read a section
+readSection ::  UTF.ByteString -> Maybe UTF.ByteString
 readSection = readOne sectionRegex
+
 -- Try to read a question
+readQuestion ::  UTF.ByteString -> Maybe UTF.ByteString
 readQuestion = readOne questionRegex
 
 -- Data for representing a test
@@ -52,14 +52,18 @@ data Question = Question {
   comment :: B.ByteString,
   status :: QuestionStatus
   } deriving (Eq, Show)
-defaultQuestion = Question (B.pack "") (B.pack "") Incomplete
+
+defaultQuestion ::  Question
+defaultQuestion = Question mempty mempty Incomplete
 
 data Section = Section {
   title :: B.ByteString,
   caption :: B.ByteString, -- unused
   questions :: [Question]
   } deriving (Eq, Show)
-defaultSection = Section (B.pack "") (B.pack "") []
+
+defaultSection ::  Section
+defaultSection = Section mempty mempty []
 
 type Test = [Section]
 
@@ -71,14 +75,14 @@ clean :: B.ByteString -> B.ByteString
 clean str = B.pack . strip $ foldr go ("", Normal) (B.unpack str)
   where
     -- Take away leading and trailing whitespace
-    strip (str, _) = reverse $ dropWhile ((==) ' ') $
-                     reverse $ dropWhile ((==) ' ') str
+    strip (str, _) = reverse $ dropWhile (' ' ==)  $
+                     reverse $ dropWhile (' ' ==)  str
     -- Merge adjacent whitespace
-    go :: Char -> ([Char], CleanState) -> ([Char], CleanState)
+    go :: Char -> (String, CleanState) -> (String, CleanState)
     go '\t' (s, Normal) = (' ':s, PostSpace)
     go ' ' (s, Normal) = (' ':s, PostSpace)
-    go ' ' state@(s, PostSpace) = state
-    go '\t' state@(s, PostSpace) = state
+    go ' ' state@(_, PostSpace) = state
+    go '\t' state@(_, PostSpace) = state
     go c (s, PostSpace) = (c:s, Normal)
     go c (s, Normal) = (c:s, Normal)
 
@@ -106,8 +110,7 @@ parseTest l = reverse $ map reverseQuestions $ impl l []
       questionText = readQuestion line
       question = defaultQuestion { questionText = clean $
                                                   fromJust questionText }
-      newQuestion = section {
-        questions = question:(questions section) }
+      newQuestion = section { questions = question:questions section }
       newQuestionList = newQuestion : restSection
       in
        -- Figure out what sort of line we just parsed
@@ -123,7 +126,7 @@ parseTest l = reverse $ map reverseQuestions $ impl l []
 loadTest :: IO Test
 loadTest = do
   let url = "http://www.armory.com/tests/500.html"
-  raw <- (HTTP.simpleHTTP (HTTP.getRequest url) >>= HTTP.getResponseBody)
+  raw <- HTTP.simpleHTTP (HTTP.getRequest url) >>= HTTP.getResponseBody
   let rawLines = UTF.lines $ B.pack raw
       sections = parseTest rawLines
   return sections
@@ -132,6 +135,7 @@ loadTest = do
 -- Pretty Printing
 
 -- Mapping of statuses to strings
+statusToStringAssoc ::  [(QuestionStatus, String)]
 statusToStringAssoc = [
   (Done, "D"),
   (Technicality, "T"),
@@ -139,13 +143,15 @@ statusToStringAssoc = [
   (Incomplete, " ")
   ]
 -- And back again!
+stringToStatusAssoc ::  [(String, QuestionStatus)]
 stringToStatusAssoc = map swap statusToStringAssoc
 
 -- Convert a status into a string for test display
 statusToChar :: QuestionStatus -> String
-statusToChar = fromJust . (flip lookup) statusToStringAssoc
+statusToChar = fromJust . flip lookup statusToStringAssoc
 
 -- How many columns should be used to separate sections/questions
+columns ::  Int
 columns = 79
 
 -- Convert ByteString to Doc
@@ -157,7 +163,8 @@ printStatus :: QuestionStatus -> Doc
 printStatus = brackets . text . statusToChar
 
 -- What to put between questions and comments
-questionCommentSep = text ['-' | i <- [1..columns]]
+questionCommentSep ::  Doc
+questionCommentSep = text $ replicate columns '-'
 
 -- Convert Question to Doc
 printQuestion :: Question -> Doc
@@ -167,7 +174,8 @@ printQuestion q = questionSep
                   $$ bText (comment q)
 
 -- What goes between questions
-questionSep = text ['=' | i <- [1..columns]]
+questionSep ::  Doc
+questionSep = text $ replicate columns '='
 
 -- Print a list of questions
 printQuestions :: [Question] -> Doc
@@ -175,14 +183,14 @@ printQuestions questions = foldl ($$) Doc.empty $ map printQuestion questions
 
 -- What goes between sections
 sectionSep :: Doc
-sectionSep = text ['#' | i <- [1..columns]]
+sectionSep = text $ replicate columns '#'
 
 -- Convert Section to Doc
 printSection :: Section -> Doc
 printSection section = sectionSep
                        $$ text "##" <+> bText (title section)
                        $$ sectionSep
-                       $$ (printQuestions $ questions section)
+                       $$ printQuestions (questions section)
 
 -- Print out a whole test!
 printTest :: Test -> Doc
@@ -193,9 +201,7 @@ printTest test = fsep $ map printSection test
 
 -- Convert a string to a status
 charToStatus :: String -> QuestionStatus
-charToStatus c = case lookup c stringToStatusAssoc of
-  Just v -> v
-  Nothing -> error ("can't find " ++ c)
+charToStatus c = fromMaybe (error $ "can't find " ++ c) $ lookup c stringToStatusAssoc
 
 -- Score for each status type
 type TestScore = Map.Map QuestionStatus Int
@@ -209,7 +215,7 @@ scoreTest raw = let
   -- All looks like [["[X]", "X"], ...]
   all = raw =~ regex
   -- matches is just a list of the chars in brackets
-  matches = map (\l -> l !! 1) all
+  matches = map (!! 1) all
   -- statuses is a list of statuses
   statuses = map (charToStatus . B.unpack) matches
   -- A list for building the map
@@ -237,7 +243,7 @@ printScore test = done <+> slash <+> technicality <+> slash
     technicalityCount = fromIntegral $ test ! Technicality
     wouldDoCount = fromIntegral $ test ! WouldDo
 
-    countToPercent c = 100 - 100 / (fromIntegral total) * c
+    countToPercent c = 100 - 100 / fromIntegral total * c
     countToDoc = text . niceFloat . countToPercent
 
     done = countToDoc doneCount
@@ -247,16 +253,10 @@ printScore test = done <+> slash <+> technicality <+> slash
 --------------------------------------------------------------------------------
 -- Main
 
+main ::  IO ()
 main = do
   args <- getArgs
-  sequence $ do
+  sequence_ $ do
     filePath <- args
-    let scoreAction = do
-          text <- B.readFile filePath
-          print $ printScore $ scoreTest text
-    return scoreAction
-  if null args then do
-    t <- loadTest
-    print $ printTest t
-  else
-    return ()
+    return $ B.readFile filePath >>= print . printScore . scoreTest
+  when (null args) $ loadTest >>= print . printTest
