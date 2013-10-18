@@ -3,6 +3,7 @@ purity
 
 The one, the only, the 500 question purity test... now in Haskell!
 
+
 The WHAT now?
 -------------
 
@@ -18,6 +19,7 @@ wonder "was it a technicality or did I *REALLY* do it?" For those who have said
 "I wish I could track this information in git." For those out there that have
 said "this is great, but can I get my text editor to do it?" And for those who
 have said "great, now can I do it in Haskell?" This is for you.
+
 
 How it works.
 -------------
@@ -63,6 +65,7 @@ score could be if you did everything you are [W]illing to do. The final number
 represents how many questions were found in the file. *Hint:* if it reports fewer
 than 500, you messed up your test file.
 
+
 Extras
 ------
 
@@ -79,6 +82,18 @@ is pull out your laptop, fire up Emacs,
     M-x occur <ret> \[W\] <ret>
 
 and you'll be ready to go! Easy as pi.
+
+
+Dependencies
+------------
+
+This relies on two Haskell modules that aren't installed by default on most systems.
+These provide the regex and http functionality used to download and parse the test
+itself. In order to install them, make sure you have Cabal installed and then
+
+    cabal install regex-pcre
+    cabal install HTTP
+
 
 Contributors
 ------------
